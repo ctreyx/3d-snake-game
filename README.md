@@ -2,6 +2,10 @@
 
 这是一个基于 Vue 3 + TypeScript + Vite + Three.js + MediaPipe 开发的实时 3D 手势交互贪吃蛇游戏。
 
+## 🔗 在线体验
+
+👉 [点击这里立即体验游戏](https://ctreyx.github.io/3d-snake-game/)
+
 ## ✨ 主要功能
 
 - **👋 手势控制**：通过摄像头捕捉手部动作，移动手掌即可控制贪吃蛇的移动方向。
