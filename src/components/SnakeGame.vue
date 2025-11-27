@@ -62,6 +62,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { Hands } from '@mediapipe/hands';
+import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
 // import { Camera } from '@mediapipe/camera_utils'; // Not used anymore
 
 // --- State ---
@@ -102,6 +103,56 @@ const foodBounds = { x: 15, y: 10, z: 5 };
 // MediaPipe
 let hands: Hands;
 // let cameraUtils: Camera; // Removed as we use getUserMedia directly
+
+// --- SVG Resources ---
+const appleSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <path d="M50 85 C 40 95 20 95 10 75 C 0 55 10 35 30 35 C 40 35 50 45 50 45 C 50 45 60 35 70 35 C 90 35 100 55 90 75 C 80 95 60 95 50 85 Z" fill="red"/>
+  <path d="M50 45 Q 55 25 65 15 L 50 20 Z" fill="green"/>
+</svg>`;
+
+const snakeHeadSvg = `
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <circle cx="50" cy="50" r="45" fill="#00ff88"/>
+  <circle cx="35" cy="40" r="10" fill="black"/>
+  <circle cx="65" cy="40" r="10" fill="black"/>
+</svg>`;
+
+let appleGeometry: THREE.ExtrudeGeometry;
+let snakeHeadGeometry: THREE.ExtrudeGeometry;
+
+const loadSVGGeometry = (svgString: string, scale: number = 0.015) => {
+  const loader = new SVGLoader();
+  const data = loader.parse(svgString);
+  const paths = data.paths;
+  const shapes: THREE.Shape[] = [];
+
+  paths.forEach((path: any) => {
+    const pathShapes = path.toShapes(true);
+    shapes.push(...pathShapes);
+  });
+
+  const geometry = new THREE.ExtrudeGeometry(shapes, {
+    depth: 10,
+    bevelEnabled: true,
+    bevelThickness: 2,
+    bevelSize: 2,
+    bevelSegments: 3
+  });
+  
+  // Center
+  geometry.computeBoundingBox();
+  const center = new THREE.Vector3();
+  if (geometry.boundingBox) {
+    geometry.boundingBox.getCenter(center);
+    geometry.translate(-center.x, -center.y, -center.z);
+  }
+  
+  // Scale (SVG is usually large, and Y is inverted)
+  geometry.scale(scale, -scale, scale); 
+  
+  return geometry;
+};
 
 // --- Methods ---
 
@@ -165,6 +216,10 @@ const initThree = () => {
   // scene.add(gridHelper);
 
   // Init Snake
+  // Preload Geometries
+  appleGeometry = loadSVGGeometry(appleSvg, 0.015);
+  snakeHeadGeometry = loadSVGGeometry(snakeHeadSvg, 0.015);
+
   createSnakeSegment(new THREE.Vector3(0, 0, 0));
   // Add some initial body
   for(let i=0; i<5; i++) {
@@ -188,16 +243,39 @@ const getGeometry = () => {
 };
 
 const createSnakeSegment = (position: THREE.Vector3) => {
-  const geometry = getGeometry();
-  const material = new THREE.MeshStandardMaterial({ 
-    color: snakeColor.value,
-    emissive: snakeColor.value,
-    emissiveIntensity: 0.5,
-    roughness: 0.4,
-    metalness: 0.6
-  });
+  let geometry: THREE.BufferGeometry;
+  let material: THREE.Material;
+
+  if (snakeSegments.length === 0) {
+    // Head
+    geometry = snakeHeadGeometry ? snakeHeadGeometry.clone() : getGeometry();
+    material = new THREE.MeshStandardMaterial({ 
+      color: snakeColor.value,
+      emissive: snakeColor.value,
+      emissiveIntensity: 0.5,
+      roughness: 0.4,
+      metalness: 0.6
+    });
+  } else {
+    // Body
+    geometry = getGeometry(); // Keep body simple or use another SVG
+    material = new THREE.MeshStandardMaterial({ 
+      color: snakeColor.value,
+      emissive: snakeColor.value,
+      emissiveIntensity: 0.3,
+      roughness: 0.4,
+      metalness: 0.6
+    });
+  }
+
   const mesh = new THREE.Mesh(geometry, material);
   mesh.position.copy(position);
+  
+  // If it's the head (SVG), we might need to rotate it to face up initially or match orientation
+  if (snakeSegments.length === 0) {
+    mesh.rotation.x = Math.PI; // Fix SVG orientation if needed
+  }
+
   scene.add(mesh);
   snakeSegments.push(mesh);
 };
@@ -221,12 +299,30 @@ const addSegment = () => {
 
 const createFood = () => {
   if (food) scene.remove(food);
-  const geometry = new THREE.OctahedronGeometry(0.5);
-  const material = new THREE.MeshStandardMaterial({ 
-    color: 0xff0055,
-    emissive: 0xff0055,
-    emissiveIntensity: 0.8
-  });
+  
+  let geometry: THREE.BufferGeometry;
+  let material: THREE.Material;
+
+  if (appleGeometry) {
+    geometry = appleGeometry.clone();
+    // Multi-material for SVG colors? SVGLoader usually returns shapes. 
+    // We simplified to one geometry. Let's use a nice red material.
+    material = new THREE.MeshStandardMaterial({ 
+      color: 0xff0000,
+      emissive: 0xaa0000,
+      emissiveIntensity: 0.5,
+      roughness: 0.2,
+      metalness: 0.3
+    });
+  } else {
+    geometry = new THREE.OctahedronGeometry(0.5);
+    material = new THREE.MeshStandardMaterial({ 
+      color: 0xff0055,
+      emissive: 0xff0055,
+      emissiveIntensity: 0.8
+    });
+  }
+
   food = new THREE.Mesh(geometry, material);
   respawnFood();
   scene.add(food);
@@ -236,7 +332,7 @@ const respawnFood = () => {
   food.position.set(
     (Math.random() - 0.5) * foodBounds.x * 2,
     (Math.random() - 0.5) * foodBounds.y * 2,
-    (Math.random() - 0.5) * foodBounds.z * 2
+    0 // Fixed Z to 0 for collision
   );
 };
 
@@ -389,7 +485,14 @@ const animate = () => {
 
   // Check Food Collision
   if (head && food) {
-    if (head.position.distanceTo(food.position) < 1.0) {
+    // Ignore Z distance since we are in 2D plane mostly, but we fixed Z to 0.
+    // Use 2D distance for better feel
+    const dist = Math.sqrt(
+      Math.pow(head.position.x - food.position.x, 2) + 
+      Math.pow(head.position.y - food.position.y, 2)
+    );
+    
+    if (dist < 1.5) { // Increased threshold
       score.value += 10;
       addSegment();
       respawnFood();
@@ -397,8 +500,8 @@ const animate = () => {
     }
     
     // Rotate food
-    food.rotation.x += 0.02;
-    food.rotation.y += 0.03;
+    food.rotation.z += 0.02; // Rotate around Z for 2D view
+    // food.rotation.y += 0.03;
   }
 
   renderer.render(scene, camera);
