@@ -3,7 +3,7 @@
     <div ref="canvasContainer" class="canvas-container"></div>
     
     <!-- Video element for MediaPipe and Background -->
-    <video ref="inputVideo" class="input-video" playsinline autoplay muted></video>
+    <video ref="inputVideo" class="input-video" playsinline></video>
 
     <!-- UI Panel -->
     <div class="ui-panel" :class="{ 'hidden': uiHidden }">
@@ -34,7 +34,6 @@
       <div class="control-group">
         <label>Status</label>
         <div class="status-text">
-          <div class="debug-info">{{ debugMessage }}</div>
           <span :class="{ active: isHandDetected }">
             {{ isHandDetected ? 'Hand Detected' : 'No Hand' }}
           </span>
@@ -71,7 +70,6 @@ const inputVideo = ref<HTMLVideoElement | null>(null);
 const uiHidden = ref(false);
 const isHandDetected = ref(false);
 const isPinching = ref(false);
-const debugMessage = ref('Initializing...');
 const score = ref(0);
 const snakeColor = ref('#00ff88');
 const currentModel = ref('cube');
@@ -356,7 +354,7 @@ const initMediaPipe = async () => {
 
   hands.setOptions({
     maxNumHands: 1,
-    modelComplexity: 0, // Use Lite model for mobile performance
+    modelComplexity: 1,
     minDetectionConfidence: 0.5,
     minTrackingConfidence: 0.5
   });
@@ -365,7 +363,6 @@ const initMediaPipe = async () => {
 
   // Use getUserMedia directly for better mobile support (facingMode)
   try {
-    debugMessage.value = "Requesting Camera...";
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
         facingMode: 'user', // Prefer front camera on mobile
@@ -374,38 +371,27 @@ const initMediaPipe = async () => {
       }
     });
     
-    debugMessage.value = "Camera Access Granted";
     inputVideo.value.srcObject = stream;
-    
-    // Direct play for better compatibility
     await inputVideo.value.play();
-    debugMessage.value = "Video Playing, Starting AI...";
+
+    // Start processing loop
+    const processFrame = async () => {
+      if (inputVideo.value && !inputVideo.value.paused && !inputVideo.value.ended) {
+        await hands.send({ image: inputVideo.value });
+      }
+      requestAnimationFrame(processFrame);
+    };
     processFrame();
 
   } catch (error) {
     console.error("Error accessing camera:", error);
-    debugMessage.value = "Camera Error: " + error;
     alert("无法访问摄像头，请检查权限或设备支持情况。");
   }
-};
-
-// Start processing loop
-const processFrame = async () => {
-  if (inputVideo.value && !inputVideo.value.paused && !inputVideo.value.ended) {
-    try {
-      await hands.send({ image: inputVideo.value });
-    } catch (e) {
-      console.error("MediaPipe Error:", e);
-      // Don't update debugMessage here to avoid spam, but log it
-    }
-  }
-  requestAnimationFrame(processFrame);
 };
 
 const onResults = (results: any) => {
   if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
     isHandDetected.value = true;
-    debugMessage.value = "Tracking Active";
     const landmarks = results.multiHandLandmarks[0];
     
     // Use Index Finger Tip (8) for position
@@ -660,13 +646,6 @@ input[type="color"] {
   border-radius: 8px;
   cursor: pointer;
   background: transparent;
-}
-
-.debug-info {
-  font-size: 0.7rem;
-  color: #ffaa00;
-  margin-bottom: 4px;
-  font-family: monospace;
 }
 
 .status-text {
