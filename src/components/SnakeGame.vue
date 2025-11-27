@@ -3,7 +3,7 @@
     <div ref="canvasContainer" class="canvas-container"></div>
     
     <!-- Video element for MediaPipe and Background -->
-    <video ref="inputVideo" class="input-video" playsinline></video>
+    <video ref="inputVideo" class="input-video" playsinline autoplay muted></video>
 
     <!-- UI Panel -->
     <div class="ui-panel" :class="{ 'hidden': uiHidden }">
@@ -377,14 +377,10 @@ const initMediaPipe = async () => {
     debugMessage.value = "Camera Access Granted";
     inputVideo.value.srcObject = stream;
     
-    // Wait for video to be ready
-    inputVideo.value.onloadedmetadata = async () => {
-      if (!inputVideo.value) return;
-      debugMessage.value = "Video Metadata Loaded";
-      await inputVideo.value.play();
-      debugMessage.value = "Video Playing, Starting AI...";
-      processFrame();
-    };
+    // Direct play for better compatibility
+    await inputVideo.value.play();
+    debugMessage.value = "Video Playing, Starting AI...";
+    processFrame();
 
   } catch (error) {
     console.error("Error accessing camera:", error);
