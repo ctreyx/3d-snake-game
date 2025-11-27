@@ -61,10 +61,9 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
 import { Hands } from '@mediapipe/hands';
-import { SVGLoader } from 'three/examples/jsm/loaders/SVGLoader.js';
-// import { Camera } from '@mediapipe/camera_utils'; // Not used anymore
+// import { Camera } from '@mediapipe/camera_utils'; // 不再使用
 
-// --- State ---
+// --- 状态变量 ---
 const canvasContainer = ref<HTMLElement | null>(null);
 const inputVideo = ref<HTMLVideoElement | null>(null);
 const uiHidden = ref(false);
@@ -80,79 +79,86 @@ const models = [
   { label: 'Tetra', value: 'tetra' }
 ];
 
-// --- Three.js Variables ---
+// --- Three.js 变量 ---
 let scene: THREE.Scene;
 let camera: THREE.PerspectiveCamera;
 let renderer: THREE.WebGLRenderer;
 let animationId: number;
 
-// Snake
-const snakeSegments: THREE.Mesh[] = [];
+// 蛇
+const snakeSegments: THREE.Object3D[] = [];
 const segmentDistance = 0.5;
 const snakeSpeed = 0.15;
 const boostSpeed = 0.3;
 let moveSpeed = snakeSpeed;
 const targetPosition = new THREE.Vector3(0, 0, 0);
 
-// Food
-let food: THREE.Mesh;
-const foodBounds = { x: 15, y: 10, z: 5 };
+// 食物
+let food: THREE.Object3D;
+// const foodBounds = { x: 15, y: 10, z: 5 }; // 已移除，动态计算
 
-// MediaPipe
+// MediaPipe 手势识别
 let hands: Hands;
-// let cameraUtils: Camera; // Removed as we use getUserMedia directly
+// let cameraUtils: Camera; // 已移除，直接使用 getUserMedia
 
-// --- SVG Resources ---
-const appleSvg = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <path d="M50 85 C 40 95 20 95 10 75 C 0 55 10 35 30 35 C 40 35 50 45 50 45 C 50 45 60 35 70 35 C 90 35 100 55 90 75 C 80 95 60 95 50 85 Z" fill="red"/>
-  <path d="M50 45 Q 55 25 65 15 L 50 20 Z" fill="green"/>
-</svg>`;
+// --- 烟花特效 ---
+interface Particle {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  life: number;
+}
 
-const snakeHeadSvg = `
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
-  <circle cx="50" cy="50" r="45" fill="#00ff88"/>
-  <circle cx="35" cy="40" r="10" fill="black"/>
-  <circle cx="65" cy="40" r="10" fill="black"/>
-</svg>`;
+const fireworks: Particle[] = [];
+const particleGeometry = new THREE.SphereGeometry(0.1, 4, 4);
 
-let appleGeometry: THREE.ExtrudeGeometry;
-let snakeHeadGeometry: THREE.ExtrudeGeometry;
-
-const loadSVGGeometry = (svgString: string, scale: number = 0.015) => {
-  const loader = new SVGLoader();
-  const data = loader.parse(svgString);
-  const paths = data.paths;
-  const shapes: THREE.Shape[] = [];
-
-  paths.forEach((path: any) => {
-    const pathShapes = path.toShapes(true);
-    shapes.push(...pathShapes);
-  });
-
-  const geometry = new THREE.ExtrudeGeometry(shapes, {
-    depth: 10,
-    bevelEnabled: true,
-    bevelThickness: 2,
-    bevelSize: 2,
-    bevelSegments: 3
-  });
+const createFirework = (position: THREE.Vector3) => {
+  const particleCount = 20;
+  // 随机颜色：红、黄、橙
+  const colors = [0xff0000, 0xffff00, 0xffa500, 0xff00ff, 0x00ffff];
+  const color = colors[Math.floor(Math.random() * colors.length)];
   
-  // Center
-  geometry.computeBoundingBox();
-  const center = new THREE.Vector3();
-  if (geometry.boundingBox) {
-    geometry.boundingBox.getCenter(center);
-    geometry.translate(-center.x, -center.y, -center.z);
+  for (let i = 0; i < particleCount; i++) {
+    const material = new THREE.MeshBasicMaterial({ color: color });
+    const mesh = new THREE.Mesh(particleGeometry, material);
+    mesh.position.copy(position);
+    
+    // 随机爆炸速度
+    const velocity = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.8,
+      (Math.random() - 0.5) * 0.8,
+      (Math.random() - 0.5) * 0.8
+    );
+
+    scene.add(mesh);
+    fireworks.push({
+      mesh,
+      velocity,
+      life: 1.0
+    });
   }
-  
-  // Scale (SVG is usually large, and Y is inverted)
-  geometry.scale(scale, -scale, scale); 
-  
-  return geometry;
 };
 
-// --- Methods ---
+const updateFireworks = () => {
+  for (let i = fireworks.length - 1; i >= 0; i--) {
+    const p = fireworks[i];
+    if (!p) continue;
+
+    p.life -= 0.02; // 逐渐消失
+    
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      p.mesh.geometry.dispose(); // 释放内存
+      (p.mesh.material as THREE.Material).dispose();
+      fireworks.splice(i, 1);
+    } else {
+      p.mesh.position.add(p.velocity);
+      p.mesh.scale.setScalar(p.life);
+      p.mesh.rotation.x += 0.1;
+    }
+  }
+};
+
+// --- 方法 ---
 
 const toggleUI = () => {
   uiHidden.value = !uiHidden.value;
@@ -174,33 +180,37 @@ const setModel = (model: string) => {
 const updateColor = () => {
   const color = new THREE.Color(snakeColor.value);
   snakeSegments.forEach(segment => {
-    (segment.material as THREE.MeshStandardMaterial).color.set(color);
-    (segment.material as THREE.MeshStandardMaterial).emissive.set(color);
+    segment.traverse((child) => {
+      if (child instanceof THREE.Mesh) {
+        (child.material as THREE.MeshStandardMaterial).color.set(color);
+        (child.material as THREE.MeshStandardMaterial).emissive.set(color);
+      }
+    });
   });
 };
 
-// --- Game Logic ---
+// --- 游戏逻辑 ---
 
 const initThree = () => {
   if (!canvasContainer.value) return;
 
-  // Scene
+  // 场景
   scene = new THREE.Scene();
-  // scene.background = new THREE.Color(0x111111); // Removed for transparency
-  // scene.fog = new THREE.FogExp2(0x111111, 0.02); // Removed fog
+  // scene.background = new THREE.Color(0x111111); // 为了透明度已移除
+  // scene.fog = new THREE.FogExp2(0x111111, 0.02); // 已移除雾效
 
-  // Camera
+  // 相机
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.z = 20;
 
-  // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // Enable transparency
+  // 渲染器
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // 启用透明
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
-  renderer.setClearColor(0x000000, 0); // Clear transparent
+  renderer.setClearColor(0x000000, 0); // 清除透明
   canvasContainer.value.appendChild(renderer.domElement);
 
-  // Lights
+  // 灯光
   const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
   scene.add(ambientLight);
 
@@ -213,21 +223,17 @@ const initThree = () => {
   // gridHelper.rotation.x = Math.PI / 2;
   // scene.add(gridHelper);
 
-  // Init Snake
-  // Preload Geometries
-  appleGeometry = loadSVGGeometry(appleSvg, 0.015);
-  snakeHeadGeometry = loadSVGGeometry(snakeHeadSvg, 0.015);
-
+  // 初始化蛇
   createSnakeSegment(new THREE.Vector3(0, 0, 0));
-  // Add some initial body
+  // 添加初始身体段
   for(let i=0; i<5; i++) {
     addSegment();
   }
 
-  // Init Food
+  // 初始化食物
   createFood();
 
-  // Resize Handler
+  // 窗口大小调整处理
   window.addEventListener('resize', onWindowResize);
 };
 
@@ -240,51 +246,77 @@ const getGeometry = () => {
   }
 };
 
+const createSnakeHeadMesh = () => {
+  const group = new THREE.Group();
+
+  // 头部
+  const headGeometry = new THREE.BoxGeometry(0.7, 0.6, 0.8);
+  const headMaterial = new THREE.MeshStandardMaterial({ 
+    color: snakeColor.value,
+    emissive: snakeColor.value,
+    emissiveIntensity: 0.5,
+    roughness: 0.4,
+    metalness: 0.6
+  });
+  const head = new THREE.Mesh(headGeometry, headMaterial);
+  group.add(head);
+
+  // 眼睛
+  const eyeGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+  const eyeMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const pupilGeometry = new THREE.SphereGeometry(0.07, 16, 16);
+  const pupilMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+  // 左眼
+  const eyeL = new THREE.Mesh(eyeGeometry, eyeMaterial);
+  eyeL.position.set(-0.2, 0.2, 0.3);
+  group.add(eyeL);
+  const pupilL = new THREE.Mesh(pupilGeometry, pupilMaterial);
+  pupilL.position.set(-0.2, 0.2, 0.42);
+  group.add(pupilL);
+
+  // 右眼
+  const eyeR = new THREE.Mesh(eyeGeometry, eyeMaterial);
+  eyeR.position.set(0.2, 0.2, 0.3);
+  group.add(eyeR);
+  const pupilR = new THREE.Mesh(pupilGeometry, pupilMaterial);
+  pupilR.position.set(0.2, 0.2, 0.42);
+  group.add(pupilR);
+
+  return group;
+};
+
 const createSnakeSegment = (position: THREE.Vector3) => {
-  let geometry: THREE.BufferGeometry;
-  let material: THREE.Material;
+  let mesh: THREE.Object3D;
 
   if (snakeSegments.length === 0) {
-    // Head
-    geometry = snakeHeadGeometry ? snakeHeadGeometry.clone() : getGeometry();
-    material = new THREE.MeshStandardMaterial({ 
-      color: snakeColor.value,
-      emissive: snakeColor.value,
-      emissiveIntensity: 0.5,
-      roughness: 0.4,
-      metalness: 0.6
-    });
+    // 头部
+    mesh = createSnakeHeadMesh();
   } else {
-    // Body
-    geometry = getGeometry(); // Keep body simple or use another SVG
-    material = new THREE.MeshStandardMaterial({ 
+    // 身体
+    const geometry = getGeometry();
+    const material = new THREE.MeshStandardMaterial({ 
       color: snakeColor.value,
       emissive: snakeColor.value,
       emissiveIntensity: 0.3,
       roughness: 0.4,
       metalness: 0.6
     });
+    mesh = new THREE.Mesh(geometry, material);
   }
 
-  const mesh = new THREE.Mesh(geometry, material);
   mesh.position.copy(position);
-  
-  // If it's the head (SVG), we might need to rotate it to face up initially or match orientation
-  if (snakeSegments.length === 0) {
-    mesh.rotation.x = Math.PI; // Fix SVG orientation if needed
-  }
-
   scene.add(mesh);
   snakeSegments.push(mesh);
 };
 
 const rebuildSnake = () => {
-  // Keep positions, replace meshes
+  // 保持位置，替换网格
   const positions = snakeSegments.map(s => s.position.clone());
-  // Remove old
+  // 移除旧的
   snakeSegments.forEach(s => scene.remove(s));
   snakeSegments.length = 0;
-  // Create new
+  // 创建新的
   positions.forEach(pos => createSnakeSegment(pos));
 };
 
@@ -295,42 +327,66 @@ const addSegment = () => {
   }
 };
 
+const createAppleMesh = () => {
+  const group = new THREE.Group();
+
+  // 身体
+  const bodyGeometry = new THREE.SphereGeometry(0.5, 32, 32);
+  const bodyMaterial = new THREE.MeshStandardMaterial({ 
+    color: 0xff0000,
+    emissive: 0xaa0000,
+    emissiveIntensity: 0.4,
+    roughness: 0.2,
+    metalness: 0.3
+  });
+  const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+  // Deform slightly to look like apple
+  body.scale.set(1, 0.9, 1);
+  group.add(body);
+
+  // 果梗
+  const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, 0.3, 8);
+  const stemMaterial = new THREE.MeshStandardMaterial({ color: 0x5d4037 });
+  const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+  stem.position.y = 0.5;
+  group.add(stem);
+
+  // 叶子
+  const leafGeometry = new THREE.SphereGeometry(0.2, 8, 8);
+  const leafMaterial = new THREE.MeshStandardMaterial({ color: 0x4caf50 });
+  const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
+  leaf.position.set(0.15, 0.5, 0);
+  leaf.scale.set(1, 0.2, 0.5);
+  leaf.rotation.z = 0.5;
+  group.add(leaf);
+
+  return group;
+};
+
 const createFood = () => {
   if (food) scene.remove(food);
   
-  let geometry: THREE.BufferGeometry;
-  let material: THREE.Material;
-
-  if (appleGeometry) {
-    geometry = appleGeometry.clone();
-    // Multi-material for SVG colors? SVGLoader usually returns shapes. 
-    // We simplified to one geometry. Let's use a nice red material.
-    material = new THREE.MeshStandardMaterial({ 
-      color: 0xff0000,
-      emissive: 0xaa0000,
-      emissiveIntensity: 0.5,
-      roughness: 0.2,
-      metalness: 0.3
-    });
-  } else {
-    geometry = new THREE.OctahedronGeometry(0.5);
-    material = new THREE.MeshStandardMaterial({ 
-      color: 0xff0055,
-      emissive: 0xff0055,
-      emissiveIntensity: 0.8
-    });
-  }
-
-  food = new THREE.Mesh(geometry, material);
+  food = createAppleMesh();
   respawnFood();
   scene.add(food);
 };
 
 const respawnFood = () => {
+  // 计算 Z=0 处的可见边界
+  // 相机 Z=20, 食物 Z=0 -> 距离 = 20
+  const dist = camera.position.z;
+  const vFOV = THREE.MathUtils.degToRad(camera.fov); // 垂直视场角（弧度）
+  const height = 2 * Math.tan(vFOV / 2) * dist;
+  const width = height * camera.aspect;
+
+  // 使用 90% 的可见区域以保持食物在屏幕内
+  const safeWidth = width * 0.45;
+  const safeHeight = height * 0.45;
+
   food.position.set(
-    (Math.random() - 0.5) * foodBounds.x * 2,
-    (Math.random() - 0.5) * foodBounds.y * 2,
-    0 // Fixed Z to 0 for collision
+    (Math.random() - 0.5) * 2 * safeWidth,
+    (Math.random() - 0.5) * 2 * safeHeight,
+    0 // 固定 Z 为 0 以便碰撞检测
   );
 };
 
@@ -361,11 +417,11 @@ const initMediaPipe = async () => {
 
   hands.onResults(onResults);
 
-  // Use getUserMedia directly for better mobile support (facingMode)
+  // 直接使用 getUserMedia 以获得更好的移动端支持 (facingMode)
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
-        facingMode: 'user', // Prefer front camera on mobile
+        facingMode: 'user', // 移动端优先使用前置摄像头
         width: { ideal: 640 },
         height: { ideal: 480 }
       }
@@ -374,7 +430,7 @@ const initMediaPipe = async () => {
     inputVideo.value.srcObject = stream;
     await inputVideo.value.play();
 
-    // Start processing loop
+    // 开始处理循环
     const processFrame = async () => {
       if (inputVideo.value && !inputVideo.value.paused && !inputVideo.value.ended) {
         await hands.send({ image: inputVideo.value });
@@ -394,20 +450,20 @@ const onResults = (results: any) => {
     isHandDetected.value = true;
     const landmarks = results.multiHandLandmarks[0];
     
-    // Use Index Finger Tip (8) for position
-    // Map 0-1 to scene coordinates
-    // Video is mirrored, so x is inverted
+    // 使用食指指尖 (8) 定位
+    // 映射 0-1 到场景坐标
+    // 视频是镜像的，所以 x 反转
     const x = (1 - landmarks[8].x) * 2 - 1; // -1 to 1
     const y = (1 - landmarks[8].y) * 2 - 1; // -1 to 1
     
-    // Map to scene bounds (approx)
+    // 映射到场景边界（近似）
     targetPosition.x = x * 15;
     targetPosition.y = y * 10;
-    // Z can be controlled by hand size or pinch? Let's keep Z simple for now or use pinch for Z?
-    // Requirement says "Hands open/close control snake direction".
-    // Let's use Pinch to boost speed.
+    // Z 轴可以通过手的大小或捏合来控制？暂时保持 Z 轴简单，或者用捏合控制 Z？
+    // 需求说“手张开/闭合控制蛇的方向”。
+    // 让我们用捏合来加速。
     
-    // Detect Pinch (Thumb tip 4 and Index tip 8 distance)
+    // 检测捏合（拇指指尖 4 和食指指尖 8 的距离）
     const thumbTip = landmarks[4];
     const indexTip = landmarks[8];
     const distance = Math.sqrt(
@@ -428,33 +484,36 @@ const onResults = (results: any) => {
   }
 };
 
-// --- Animation Loop ---
+// --- 动画循环 ---
 
 const animate = () => {
   animationId = requestAnimationFrame(animate);
 
-  // Move Head towards target
+  // 更新烟花
+  updateFireworks();
+
+  // 移动蛇头向目标
   const head = snakeSegments[0];
   if (head) {
-    // Smoothly interpolate head position to target
+    // 平滑插值头部位置到目标
     const dir = new THREE.Vector3().subVectors(targetPosition, head.position);
-    // Limit speed
+    // 限制速度
     if (dir.length() > moveSpeed) {
       dir.normalize().multiplyScalar(moveSpeed);
     }
     head.position.add(dir);
     
-    // Rotate head to face direction
+    // 旋转头部朝向方向
     head.lookAt(targetPosition);
   }
 
-  // Move Body
+  // 移动身体
   for (let i = snakeSegments.length - 1; i > 0; i--) {
     const current = snakeSegments[i];
     const prev = snakeSegments[i - 1];
     
     if (current && prev) {
-      // Move current towards prev
+      // 当前段向上一段移动
       const dist = current.position.distanceTo(prev.position);
       if (dist > segmentDistance) {
         const dir = new THREE.Vector3().subVectors(prev.position, current.position).normalize();
@@ -465,31 +524,34 @@ const animate = () => {
     }
   }
 
-  // Check Food Collision
+  // 检查食物碰撞
   if (head && food) {
-    // Ignore Z distance since we are in 2D plane mostly, but we fixed Z to 0.
-    // Use 2D distance for better feel
+    // 忽略 Z 轴距离，因为主要在 2D 平面，且 Z 固定为 0
+    // 使用 2D 距离获得更好的手感
     const dist = Math.sqrt(
       Math.pow(head.position.x - food.position.x, 2) + 
       Math.pow(head.position.y - food.position.y, 2)
     );
     
-    if (dist < 1.5) { // Increased threshold
+    if (dist < 1.5) { // 增加判定阈值
       score.value += 10;
       addSegment();
+      // 在食物重生前触发烟花，确保位置正确
+      createFirework(food.position.clone());
       respawnFood();
-      // Pulse effect or particle burst could go here
     }
     
-    // Rotate food
-    food.rotation.z += 0.02; // Rotate around Z for 2D view
+    // 旋转食物
+    food.rotation.z += 0.02; // 绕 Z 轴旋转以适应 2D 视图
     // food.rotation.y += 0.03;
   }
+
+  updateFireworks(); // 更新烟花
 
   renderer.render(scene, camera);
 };
 
-// --- Lifecycle ---
+// --- 生命周期 ---
 
 onMounted(() => {
   initThree();
@@ -501,14 +563,14 @@ onBeforeUnmount(() => {
   cancelAnimationFrame(animationId);
   window.removeEventListener('resize', onWindowResize);
   
-  // Stop video stream
+  // 停止视频流
   if (inputVideo.value && inputVideo.value.srcObject) {
     const stream = inputVideo.value.srcObject as MediaStream;
     const tracks = stream.getTracks();
     tracks.forEach(track => track.stop());
   }
 
-  // Cleanup Three.js
+  // 清理 Three.js
   renderer.dispose();
 });
 
