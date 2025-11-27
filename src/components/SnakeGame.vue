@@ -8,12 +8,12 @@
     <!-- UI Panel -->
     <div class="ui-panel" :class="{ 'hidden': uiHidden }">
       <div class="panel-header">
-        <h2>3D Snake Control</h2>
-        <button @click="toggleUI" class="toggle-btn">{{ uiHidden ? 'Show' : 'Hide' }}</button>
+        <h2>3D 贪吃蛇控制</h2>
+        <button @click="toggleUI" class="toggle-btn">{{ uiHidden ? '显示' : '隐藏' }}</button>
       </div>
       
       <div class="control-group">
-        <label>Snake Model</label>
+        <label>蛇身模型</label>
         <div class="model-selector">
           <button 
             v-for="model in models" 
@@ -27,32 +27,32 @@
       </div>
 
       <div class="control-group">
-        <label>Snake Color</label>
+        <label>蛇身颜色</label>
         <input type="color" v-model="snakeColor" @input="updateColor">
       </div>
 
       <div class="control-group">
-        <label>Status</label>
+        <label>状态</label>
         <div class="status-text">
           <span :class="{ active: isHandDetected }">
-            {{ isHandDetected ? 'Hand Detected' : 'No Hand' }}
+            {{ isHandDetected ? '检测到手势' : '未检测到手势' }}
           </span>
           <span v-if="isHandDetected">
-            | {{ isPinching ? 'Speed Boost!' : 'Normal Speed' }}
+            | {{ isPinching ? '加速中！' : '正常速度' }}
           </span>
         </div>
       </div>
 
       <div class="control-group">
         <button @click="toggleFullscreen" class="fullscreen-btn">
-          Toggle Fullscreen
+          切换全屏
         </button>
       </div>
     </div>
     
     <!-- Score Display -->
     <div class="score-display">
-      Score: {{ score }}
+      得分: {{ score }}
     </div>
   </div>
 </template>
@@ -74,9 +74,9 @@ const snakeColor = ref('#00ff88');
 const currentModel = ref('cube');
 
 const models = [
-  { label: 'Cube', value: 'cube' },
-  { label: 'Sphere', value: 'sphere' },
-  { label: 'Tetra', value: 'tetra' }
+  { label: '方块', value: 'cube' },
+  { label: '球体', value: 'sphere' },
+  { label: '四面体', value: 'tetra' }
 ];
 
 // --- Three.js 变量 ---
