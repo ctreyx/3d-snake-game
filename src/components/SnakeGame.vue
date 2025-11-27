@@ -2,8 +2,8 @@
   <div class="game-container">
     <div ref="canvasContainer" class="canvas-container"></div>
     
-    <!-- Hidden video element for MediaPipe -->
-    <video ref="inputVideo" class="input-video" playsinline style="display: none;"></video>
+    <!-- Video element for MediaPipe and Background -->
+    <video ref="inputVideo" class="input-video" playsinline></video>
 
     <!-- UI Panel -->
     <div class="ui-panel" :class="{ 'hidden': uiHidden }">
@@ -58,9 +58,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onBeforeUnmount, reactive } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import * as THREE from 'three';
-import { Hands, HAND_CONNECTIONS } from '@mediapipe/hands';
+import { Hands } from '@mediapipe/hands';
 // import { Camera } from '@mediapipe/camera_utils'; // Not used anymore
 
 // --- State ---
@@ -92,7 +92,6 @@ const snakeSpeed = 0.15;
 const boostSpeed = 0.3;
 let moveSpeed = snakeSpeed;
 const targetPosition = new THREE.Vector3(0, 0, 0);
-const snakeHeadPos = new THREE.Vector3(0, 0, 0);
 
 // Food
 let food: THREE.Mesh;
@@ -136,17 +135,18 @@ const initThree = () => {
 
   // Scene
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x111111);
-  scene.fog = new THREE.FogExp2(0x111111, 0.02);
+  // scene.background = new THREE.Color(0x111111); // Removed for transparency
+  // scene.fog = new THREE.FogExp2(0x111111, 0.02); // Removed fog
 
   // Camera
   camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
   camera.position.z = 20;
 
   // Renderer
-  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true }); // Enable transparency
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.setPixelRatio(window.devicePixelRatio);
+  renderer.setClearColor(0x000000, 0); // Clear transparent
   canvasContainer.value.appendChild(renderer.domElement);
 
   // Lights
@@ -212,7 +212,9 @@ const rebuildSnake = () => {
 
 const addSegment = () => {
   const lastSegment = snakeSegments[snakeSegments.length - 1];
-  createSnakeSegment(lastSegment.position.clone());
+  if (lastSegment) {
+    createSnakeSegment(lastSegment.position.clone());
+  }
 };
 
 const createFood = () => {
@@ -419,8 +421,24 @@ onBeforeUnmount(() => {
 }
 
 .canvas-container {
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
   height: 100%;
+  z-index: 2; /* Canvas on top */
+  pointer-events: none; /* Let clicks pass through if needed, though UI handles clicks */
+}
+
+.input-video {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 1; /* Video behind canvas */
+  transform: scaleX(-1); /* Mirror the video to match hand tracking logic */
 }
 
 .ui-panel {
