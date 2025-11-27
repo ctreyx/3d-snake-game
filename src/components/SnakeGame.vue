@@ -745,5 +745,6 @@ input[type="color"] {
   color: #fff;
   text-shadow: 0 0 10px rgba(0, 255, 136, 0.5);
   pointer-events: none;
+  z-index: 3;
 }
 </style>
